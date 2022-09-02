@@ -7,38 +7,46 @@ import asyncio
 import discord
 from discord.ext import commands
 
-from akinator import CantGoBackAnyFurther
-from akinator.async_aki import Akinator as AkinatorGame
+from akinator import (
+    AsyncAkinator as AkinatorGame,
+    CantGoBackAnyFurther,
+    Language,
+    Answer,
+    Theme,
+)
 
 from .utils import DiscordColor, DEFAULT_COLOR
 
 BACK = "◀️"
 STOP = "⏹️"
 
+
 class Options(Enum):
     yes = "✅"
     no = "❌"
     idk = "🤷"
     p = "🤔"
-    pn  = "😕"
+    pn = "😕"
+
 
 class Akinator:
     """
     Akinator Game, utilizes reactions
     """
+
     BAR: ClassVar[str] = "██"
     instructions: ClassVar[str] = (
-        '✅ 🠒 `yes`\n'
-        '❌ 🠒 `no`\n'
-        '🤷 🠒 `I dont know`\n'
-        '🤔 🠒 `probably`\n'
-        '😕 🠒 `probably not`\n'
+        "✅ 🠒 `yes`\n"
+        "❌ 🠒 `no`\n"
+        "🤷 🠒 `I dont know`\n"
+        "🤔 🠒 `probably`\n"
+        "😕 🠒 `probably not`\n"
     )
 
     def __init__(self) -> None:
         self.aki: AkinatorGame = AkinatorGame()
 
-        self.player: Optional[discord.Member] = None
+        self.player: Optional[discord.User] = None
         self.win_at: Optional[int] = None
         self.guess: Optional[dict[str, Any]] = None
         self.message: Optional[discord.Message] = None
@@ -46,34 +54,32 @@ class Akinator:
         self.embed_color: Optional[DiscordColor] = None
         self.back_button: bool = False
         self.delete_button: bool = False
-        
-        self.bar: str = ''
-        self.questions: int = 0
+
+        self.bar: str = ""
 
     def build_bar(self) -> str:
         prog = round(self.aki.progression / 8)
-        self.bar = f"[{self.BAR * prog}{'  ' * (10 - prog)}]"
+        self.bar = f"[`{self.BAR * prog}{'  ' * (10 - prog)}`]"
         return self.bar
 
     def build_embed(self, *, instructions: bool = True) -> discord.Embed:
 
         embed = discord.Embed(
-            title = "Guess your character!", 
-            description = (
-                "```ansi\n"
-                f"[0;1;37;40m Question-Number  : {self.questions} [0m\n"
-                f"[0;1;37;40m Progression-Level: {self.aki.progression:.2f} [0m\n```\n"
-                f"[0;1;37;40m {self.build_bar()}\n"
-                f"```"
-            ), 
-            color = self.embed_color,
+            title="Guess your character!",
+            description=(
+                "```swift\n"
+                f"Question-Number  : {self.aki.step + 1}\n"
+                f"Progression-Level: {self.aki.progression:.2f}\n```\n"
+                f"{self.build_bar()}"
+            ),
+            color=self.embed_color,
         )
-        embed.add_field(name="---- Question ----".center(10, " "), value=self.aki.question)
-        
+        embed.add_field(name="- Question -", value=self.aki.question)
+
         if instructions:
             embed.add_field(name="\u200b", value=self.instructions, inline=False)
 
-        embed.set_footer(text= "Figuring out the next question | This may take a second")
+        embed.set_footer(text="Figuring out the next question | This may take a second")
         return embed
 
     async def win(self) -> discord.Embed:
@@ -82,28 +88,34 @@ class Akinator:
         self.guess = self.aki.first_guess
 
         embed = discord.Embed(color=self.embed_color)
-        embed.title = "ALEX THINKS...."
-        embed.description = f"Total Questions: `{self.questions}`"
+        embed.title = "Alex asks"
+        embed.description = f"Total Questions: `{self.aki.step + 1}`"
 
-        embed.add_field(name="Character Guessed", value=f"\n**Name:** {self.guess['name']}\n{self.guess['description']}")
+        embed.add_field(
+            name="Character Guessed",
+            value=f"\n**Name:** {self.guess.name}\n{self.guess.description}",
+        )
 
-        embed.set_image(url=self.guess['absolute_picture_path'])
+        embed.set_image(url=self.guess.absolute_picture_path)
         embed.set_footer(text="Was I correct?")
 
         return embed
 
     async def start(
-        self, 
+        self,
         ctx: commands.Context[commands.Bot],
         *,
         embed_color: DiscordColor = DEFAULT_COLOR,
-        remove_reaction_after: bool = False, 
-        win_at: int = 80, 
+        remove_reaction_after: bool = False,
+        win_at: int = 80,
         timeout: Optional[float] = None,
         back_button: bool = False,
-        delete_button: bool = False, 
-        child_mode: bool = True, 
+        delete_button: bool = False,
+        aki_theme: str = "Characters",
+        aki_language: str = "English",
+        child_mode: bool = True,
     ) -> Optional[discord.Message]:
+
         self.back_button = back_button
         self.delete_button = delete_button
         self.embed_color = embed_color
@@ -111,12 +123,15 @@ class Akinator:
         self.win_at = win_at
 
         if self.back_button:
-            self.instructions += f'{BACK} 🠒 `back`\n'
+            self.instructions += f"{BACK} 🠒 `back`\n"
 
         if self.delete_button:
-            self.instructions += f'{STOP} 🠒 `cancel`\n'
+            self.instructions += f"{STOP} 🠒 `cancel`\n"
 
-        await self.aki.start_game(child_mode=child_mode)
+        self.aki.theme = Theme.from_str(aki_theme)
+        self.aki.language = Language.from_str(aki_language)
+        self.aki.child_mode = child_mode
+        await self.aki.start_game()
 
         embed = self.build_embed()
         self.message = await ctx.send(embed=embed)
@@ -132,7 +147,7 @@ class Akinator:
 
         while self.aki.progression <= self.win_at:
 
-            def check(reaction: discord.Reaction, user: discord.Member) -> bool:
+            def check(reaction: discord.Reaction, user: discord.User) -> bool:
                 emoji = str(reaction.emoji)
                 if reaction.message == self.message and user == ctx.author:
                     try:
@@ -141,7 +156,9 @@ class Akinator:
                         return emoji in (BACK, STOP)
 
             try:
-                reaction, user = await ctx.bot.wait_for('reaction_add', timeout=timeout, check=check)
+                reaction, user = await ctx.bot.wait_for(
+                    "reaction_add", timeout=timeout, check=check
+                )
             except asyncio.TimeoutError:
                 return
 
@@ -161,14 +178,15 @@ class Akinator:
                 try:
                     await self.aki.back()
                 except CantGoBackAnyFurther:
-                    await self.message.reply('I cannot go back any further', delete_after=10)
+                    await self.message.reply(
+                        "I cannot go back any further", delete_after=10
+                    )
             else:
-                self.questions += 1
+                answer = Answer.from_str(Options(emoji).name)
+                await self.aki.answer(answer)
 
-                await self.aki.answer(Options(emoji).name)
-                
             embed = self.build_embed()
             await self.message.edit(embed=embed)
-            
+
         embed = await self.win()
         return await self.message.edit(embed=embed)
