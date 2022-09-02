@@ -4,7 +4,7 @@ from typing import Optional, ClassVar
 
 import discord
 from discord.ext import commands
-from akinator import CantGoBackAnyFurther
+from akinator import Theme, Language, Answer, CantGoBackAnyFurther
 
 from .aki import Akinator
 from .utils import DiscordColor, DEFAULT_COLOR, BaseView
@@ -20,8 +20,8 @@ class AkiView(BaseView):
         "yes": discord.ButtonStyle.green,
         "no": discord.ButtonStyle.red,
         "idk": discord.ButtonStyle.blurple,
-        "prolly": discord.ButtonStyle.gray,
-        "prolly not": discord.ButtonStyle.gray,
+        "probably": discord.ButtonStyle.gray,
+        "probably not": discord.ButtonStyle.gray,
     }
 
     def __init__(self, game: BetaAkinator, *, timeout: float) -> None:
@@ -44,7 +44,6 @@ class AkiView(BaseView):
     async def process_input(
         self, interaction: discord.Interaction, answer: str
     ) -> None:
-
         game = self.game
 
         if interaction.user != game.player:
@@ -66,8 +65,7 @@ class AkiView(BaseView):
                     "I cant go back any further!", ephemeral=True
                 )
         else:
-            game.questions += 1
-            await game.aki.answer(answer)
+            await game.aki.answer(Answer.from_str(answer))
 
             if game.aki.progression >= game.win_at:
                 self.disable_all()
@@ -75,15 +73,13 @@ class AkiView(BaseView):
                 self.stop()
             else:
                 embed = game.build_embed(instructions=False)
-
-        return await interaction.response.edit_message(embed=embed, view=self)
+        try:
+            return await interaction.response.edit_message(embed=embed, view=self)
+        except discord.NotFound:
+            pass
 
 
 class BetaAkinator(Akinator):
-    """
-    Akinator(buttons) Game
-    """
-
     async def start(
         self,
         ctx: commands.Context[commands.Bot],
@@ -93,8 +89,11 @@ class BetaAkinator(Akinator):
         embed_color: DiscordColor = DEFAULT_COLOR,
         win_at: int = 80,
         timeout: Optional[float] = None,
+        aki_theme: str = "Characters",
+        aki_language: str = "English",
         child_mode: bool = True,
     ) -> discord.Message:
+
         self.back_button = back_button
         self.delete_button = delete_button
         self.embed_color = embed_color
@@ -103,7 +102,10 @@ class BetaAkinator(Akinator):
         self.win_at = win_at
         self.view = AkiView(self, timeout=timeout)
 
-        await self.aki.start_game(child_mode=child_mode)
+        self.aki.theme = Theme.from_str(aki_theme)
+        self.aki.language = Language.from_str(aki_language)
+        self.aki.child_mode = child_mode
+        await self.aki.start_game()
 
         embed = self.build_embed(instructions=False)
         self.message = await ctx.send(embed=embed, view=self.view)
